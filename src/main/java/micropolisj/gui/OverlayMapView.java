@@ -33,6 +33,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.function.IntFunction;
 import javax.swing.JComponent;
 import javax.swing.JScrollPane;
 import javax.swing.Scrollable;
@@ -58,6 +59,16 @@ public class OverlayMapView extends JComponent implements Scrollable, MapListene
   private static final int UNPOWERED = 0x6666e6; // lightblue
   private static final int POWERED = 0xff0000; // red
   private static final int CONDUCTIVE = 0xbfbfbf; // lightgray
+
+  /** Size in pixels of one cell of the finer-grained overlay data (pollution, crime, density). */
+  private static final int CELL_SIZE_SMALL = 6;
+
+  /** Size in pixels of one cell of the coarser overlay data (growth rate, fire, police). */
+  private static final int CELL_SIZE_LARGE = 24;
+
+  /** Returned by the tile filters when the tile has already been drawn into the image. */
+  private static final int ALREADY_DRAWN = -1;
+
   private final TileImages tileImages;
   private final ArrayList<ConnectedView> views = new ArrayList<>();
   private Micropolis engine;
@@ -112,10 +123,29 @@ public class OverlayMapView extends JComponent implements Scrollable, MapListene
     else return null;
   }
 
-  private static void maybeDrawRect(Graphics gr, Color col, int x, int y, int width, int height) {
-    if (col != null) {
-      gr.setColor(col);
-      gr.fillRect(x, y, width, height);
+  /**
+   * Fills every cell of {@code data} with the color returned by {@code colorOf} for its value.
+   * Cells whose color is {@code null} are left untouched.
+   */
+  private static void drawGrid(
+      Graphics gr, int[][] data, int cellSize, IntFunction<Color> colorOf) {
+    for (int y = 0; y < data.length; y++) {
+      for (int x = 0; x < data[y].length; x++) {
+        Color color = colorOf.apply(data[y][x]);
+        if (color != null) {
+          gr.setColor(color);
+          gr.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+  }
+
+  /** Paints the whole tile at ({@code x}, {@code y}) with a single RGB color. */
+  private static void fillTile(BufferedImage img, int x, int y, int rgb) {
+    for (int yy = 0; yy < TILE_HEIGHT; yy++) {
+      for (int xx = 0; xx < TILE_WIDTH; xx++) {
+        img.setRGB(x * TILE_WIDTH + xx, y * TILE_HEIGHT + yy, rgb);
+      }
     }
   }
 
@@ -133,13 +163,8 @@ public class OverlayMapView extends JComponent implements Scrollable, MapListene
       return DIRT;
     }
 
-    for (int yy = 0; yy < TILE_HEIGHT; yy++) {
-      for (int xx = 0; xx < TILE_WIDTH; xx++) {
-        img.setRGB(x * TILE_WIDTH + xx, y * TILE_HEIGHT + yy, pix);
-      }
-    }
-    return -1; // this special value tells caller to skip the tile bitblt,
-    // since it was performed here
+    fillTile(img, x, y, pix);
+    return ALREADY_DRAWN; // tells the caller to skip the tile bitblt
   }
 
   public void setEngine(Micropolis newEngine) {
@@ -177,107 +202,75 @@ public class OverlayMapView extends JComponent implements Scrollable, MapListene
   }
 
   private void drawPollutionMap(Graphics gr) {
-    int[][] a = engine.getPollutionMem();
-
-    for (int y = 0; y < a.length; y++) {
-      for (int x = 0; x < a[y].length; x++) {
-        maybeDrawRect(gr, getCI(10 + a[y][x]), x * 6, y * 6, 6, 6);
-      }
-    }
+    drawGrid(gr, engine.getPollutionMem(), CELL_SIZE_SMALL, v -> getCI(10 + v));
   }
 
   private void drawCrimeMap(Graphics gr) {
-    int[][] a = engine.getCrimeMem();
-
-    for (int y = 0; y < a.length; y++) {
-      for (int x = 0; x < a[y].length; x++) {
-        maybeDrawRect(gr, getCI(a[y][x]), x * 6, y * 6, 6, 6);
-      }
-    }
+    drawGrid(gr, engine.getCrimeMem(), CELL_SIZE_SMALL, OverlayMapView::getCI);
   }
 
   private void drawPopDensity(Graphics gr) {
-    int[][] a = engine.getPopDensity();
-
-    for (int y = 0; y < a.length; y++) {
-      for (int x = 0; x < a[y].length; x++) {
-        maybeDrawRect(gr, getCI(a[y][x]), x * 6, y * 6, 6, 6);
-      }
-    }
+    drawGrid(gr, engine.getPopDensity(), CELL_SIZE_SMALL, OverlayMapView::getCI);
   }
 
   private void drawRateOfGrowth(Graphics gr) {
-    int[][] a = engine.getRateOGMem();
-
-    for (int y = 0; y < a.length; y++) {
-      for (int x = 0; x < a[y].length; x++) {
-        maybeDrawRect(gr, getCI_rog(a[y][x]), x * 24, y * 24, 24, 24);
-      }
-    }
+    drawGrid(gr, engine.getRateOGMem(), CELL_SIZE_LARGE, OverlayMapView::getCI_rog);
   }
 
   private void drawFireRadius(Graphics gr) {
-    int[][] a = engine.getFireRate();
-
-    for (int y = 0; y < a.length; y++) {
-      for (int x = 0; x < a[y].length; x++) {
-        maybeDrawRect(gr, getCI(a[y][x]), x * 24, y * 24, 24, 24);
-      }
-    }
+    drawGrid(gr, engine.getFireRate(), CELL_SIZE_LARGE, OverlayMapView::getCI);
   }
 
   private void drawPoliceRadius(Graphics gr) {
-    int[][] a = engine.getPoliceMapEffect();
-
-    for (int y = 0; y < a.length; y++) {
-      for (int x = 0; x < a[y].length; x++) {
-        maybeDrawRect(gr, getCI(a[y][x]), x * 24, y * 24, 24, 24);
-      }
-    }
+    drawGrid(gr, engine.getPoliceMapEffect(), CELL_SIZE_LARGE, OverlayMapView::getCI);
   }
 
   private int checkLandValueOverlay(BufferedImage img, int xpos, int ypos, int tile) {
-    int v = engine.getLandValue(xpos, ypos);
-    Color c = getCI(v);
-    if (c == null) {
-      return tile;
-    }
-
-    int pix = c.getRGB();
-    for (int yy = 0; yy < TILE_HEIGHT; yy++) {
-      for (int xx = 0; xx < TILE_WIDTH; xx++) {
-        img.setRGB(xpos * TILE_WIDTH + xx, ypos * TILE_HEIGHT + yy, pix);
-      }
-    }
-    return CLEAR;
+    return paintHeatOverlay(img, xpos, ypos, tile, engine.getLandValue(xpos, ypos));
   }
 
   private int checkTrafficOverlay(BufferedImage img, int xpos, int ypos, int tile) {
-    int d = engine.getTrafficDensity(xpos, ypos);
-    Color c = getCI(d);
+    return paintHeatOverlay(img, xpos, ypos, tile, engine.getTrafficDensity(xpos, ypos));
+  }
+
+  /**
+   * Paints the tile with the heat color for {@code value}. Returns {@code CLEAR} when the tile was
+   * painted, or the original {@code tile} when the value is too low to show.
+   */
+  private static int paintHeatOverlay(BufferedImage img, int x, int y, int tile, int value) {
+    Color c = getCI(value);
     if (c == null) {
       return tile;
     }
 
-    int pix = c.getRGB();
-    for (int yy = 0; yy < TILE_HEIGHT; yy++) {
-      for (int xx = 0; xx < TILE_WIDTH; xx++) {
-        img.setRGB(xpos * TILE_WIDTH + xx, ypos * TILE_HEIGHT + yy, pix);
-      }
-    }
+    fillTile(img, x, y, c.getRGB());
     return CLEAR;
   }
 
   @Override
   public void paintComponent(Graphics g) {
+    BufferedImage img =
+        new BufferedImage(
+            engine.getWidth() * TILE_WIDTH,
+            engine.getHeight() * TILE_HEIGHT,
+            BufferedImage.TYPE_INT_RGB);
+
+    Insets insets = getInsets();
+    paintTiles(img, g.getClipBounds(), insets);
+    g.drawImage(img, insets.left, insets.top, null);
+
+    g = g.create();
+    g.translate(insets.left, insets.top);
+
+    paintOverlay(g);
+    paintViewRects(g);
+  }
+
+  /** Paints into {@code img} the tiles that intersect {@code clipRect}, filtered by map state. */
+  private void paintTiles(BufferedImage img, Rectangle clipRect, Insets insets) {
     int width = engine.getWidth();
     int height = engine.getHeight();
 
-    BufferedImage img =
-        new BufferedImage(width * TILE_WIDTH, height * TILE_HEIGHT, BufferedImage.TYPE_INT_RGB);
-
-    Insets insets = getInsets();
-    Rectangle clipRect = g.getClipBounds();
     int minX = Math.max(0, (clipRect.x - insets.left) / TILE_WIDTH);
     int minY = Math.max(0, (clipRect.y - insets.top) / TILE_HEIGHT);
     int maxX = Math.min(width, 1 + (clipRect.x - insets.left + clipRect.width - 1) / TILE_WIDTH);
@@ -285,57 +278,61 @@ public class OverlayMapView extends JComponent implements Scrollable, MapListene
 
     for (int y = minY; y < maxY; y++) {
       for (int x = minX; x < maxX; x++) {
-        int tile = engine.getTile(x, y);
-        switch (mapState) {
-          case RESIDENTIAL:
-            if (isZoneAny(tile) && !isResidentialZoneAny(tile)) {
-              tile = DIRT;
-            }
-            break;
-          case COMMERCIAL:
-            if (isZoneAny(tile) && !isCommercialZone(tile)) {
-              tile = DIRT;
-            }
-            break;
-          case INDUSTRIAL:
-            if (isZoneAny(tile) && !isIndustrialZone(tile)) {
-              tile = DIRT;
-            }
-            break;
-          case POWER_OVERLAY:
-            tile = checkPower(img, x, y, engine.getTile(x, y));
-            break;
-          case TRANSPORT:
-          case TRAFFIC_OVERLAY:
-            if (isConstructed(tile) && !isRoadAny(tile) && !isRailAny(tile)) {
-              tile = DIRT;
-            }
-            if (mapState == MapState.TRAFFIC_OVERLAY) {
-              tile = checkTrafficOverlay(img, x, y, tile);
-            }
-            break;
+        int tile = filterTileByMapState(img, x, y);
 
-          case LANDVALUE_OVERLAY:
-            tile = checkLandValueOverlay(img, x, y, tile);
-            break;
-
-          default:
-        }
-
-        // tile == -1 means it's already been drawn
-        // in the checkPower function
-
-        if (tile != -1) {
+        if (tile != ALREADY_DRAWN) {
           paintTile(img, x, y, tile);
         }
       }
     }
+  }
 
-    g.drawImage(img, insets.left, insets.top, null);
+  /**
+   * Returns the tile to draw at ({@code x}, {@code y}) for the current map state, or {@code
+   * ALREADY_DRAWN} if the tile was painted into {@code img} here.
+   */
+  private int filterTileByMapState(BufferedImage img, int x, int y) {
+    int tile = engine.getTile(x, y);
+    switch (mapState) {
+      case RESIDENTIAL:
+        if (isZoneAny(tile) && !isResidentialZoneAny(tile)) {
+          tile = DIRT;
+        }
+        break;
+      case COMMERCIAL:
+        if (isZoneAny(tile) && !isCommercialZone(tile)) {
+          tile = DIRT;
+        }
+        break;
+      case INDUSTRIAL:
+        if (isZoneAny(tile) && !isIndustrialZone(tile)) {
+          tile = DIRT;
+        }
+        break;
+      case POWER_OVERLAY:
+        tile = checkPower(img, x, y, tile);
+        break;
+      case TRANSPORT:
+      case TRAFFIC_OVERLAY:
+        if (isConstructed(tile) && !isRoadAny(tile) && !isRailAny(tile)) {
+          tile = DIRT;
+        }
+        if (mapState == MapState.TRAFFIC_OVERLAY) {
+          tile = checkTrafficOverlay(img, x, y, tile);
+        }
+        break;
 
-    g = g.create();
-    g.translate(insets.left, insets.top);
+      case LANDVALUE_OVERLAY:
+        tile = checkLandValueOverlay(img, x, y, tile);
+        break;
 
+      default:
+    }
+    return tile;
+  }
+
+  /** Draws the colored data overlay for the current map state, if it has one. */
+  private void paintOverlay(Graphics g) {
     switch (mapState) {
       case POLICE_OVERLAY:
         drawPoliceRadius(g);
@@ -357,7 +354,10 @@ public class OverlayMapView extends JComponent implements Scrollable, MapListene
         break;
       default:
     }
+  }
 
+  /** Draws, for each connected view, the rectangle showing the area it currently displays. */
+  private void paintViewRects(Graphics g) {
     for (ConnectedView cv : views) {
       Rectangle rect = getViewRect(cv);
       g.setColor(Color.WHITE);
@@ -482,3 +482,4 @@ public class OverlayMapView extends JComponent implements Scrollable, MapListene
     }
   }
 }
+
