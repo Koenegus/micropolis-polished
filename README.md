@@ -103,3 +103,4 @@ Save files have the following format:
 | 0x0C30 | Map data (by columns, west to east)                 |
 
 # micropolis-refurbished
+# micropolis-polished
