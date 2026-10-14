@@ -12,20 +12,15 @@ import static micropolisj.engine.TileConstants.ALLBITS;
 import static micropolisj.engine.TileConstants.CHANNEL;
 import static micropolisj.engine.TileConstants.COMBASE;
 import static micropolisj.engine.TileConstants.DIRT;
-import static micropolisj.engine.TileConstants.FIRE;
-import static micropolisj.engine.TileConstants.FLOOD;
 import static micropolisj.engine.TileConstants.HHTHR;
 import static micropolisj.engine.TileConstants.INDBASE;
-import static micropolisj.engine.TileConstants.LASTZONE;
 import static micropolisj.engine.TileConstants.LHTHR;
 import static micropolisj.engine.TileConstants.LOMASK;
 import static micropolisj.engine.TileConstants.NUCLEAR;
 import static micropolisj.engine.TileConstants.PORTBASE;
 import static micropolisj.engine.TileConstants.POWERPLANT;
 import static micropolisj.engine.TileConstants.PWRBIT;
-import static micropolisj.engine.TileConstants.RADTILE;
 import static micropolisj.engine.TileConstants.RESCLR;
-import static micropolisj.engine.TileConstants.RIVER;
 import static micropolisj.engine.TileConstants.RUBBLE;
 import static micropolisj.engine.TileConstants.commercialZonePop;
 import static micropolisj.engine.TileConstants.getDescriptionNumber;
@@ -33,24 +28,13 @@ import static micropolisj.engine.TileConstants.getPollutionValue;
 import static micropolisj.engine.TileConstants.getTileBehavior;
 import static micropolisj.engine.TileConstants.getZoneSizeFor;
 import static micropolisj.engine.TileConstants.industrialZonePop;
-import static micropolisj.engine.TileConstants.isAnimated;
-import static micropolisj.engine.TileConstants.isArsonable;
-import static micropolisj.engine.TileConstants.isCombustible;
 import static micropolisj.engine.TileConstants.isConductive;
 import static micropolisj.engine.TileConstants.isConstructed;
-import static micropolisj.engine.TileConstants.isFloodable;
-import static micropolisj.engine.TileConstants.isRiverEdge;
-import static micropolisj.engine.TileConstants.isVulnerable;
 import static micropolisj.engine.TileConstants.isZoneCenter;
 import static micropolisj.engine.TileConstants.residentialZonePop;
 
 import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.DataOutput;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -100,6 +84,8 @@ public class Micropolis {
   private static final Sprite[] SPRITES = new Sprite[0];
   private final CityBudget budget = new CityBudget();
   private final CityEval evaluation;
+  private final DisasterManager disasterManager;
+  private final CityPersistence persistence;
   private final History history = new History();
   private final List<FinancialHistory> financialHistory = new ArrayList<>();
   private final Random random;
@@ -117,7 +103,6 @@ public class Micropolis {
   private boolean autoBulldoze = true;
   private boolean autoBudget;
   private Speed simSpeed = Speed.NORMAL;
-  private boolean noDisasters;
   private int gameLevel;
   private int centerMassX;
   private int centerMassY;
@@ -171,7 +156,6 @@ public class Micropolis {
   private int roadEffect = 32;
   private int policeEffect = 1000;
   private int fireEffect = 1000;
-  private int floodCnt; // number of turns the flood will last
   private int acycle; // animation cycle (mod 960)
   private boolean[][] powerMap;
 
@@ -215,6 +199,8 @@ public class Micropolis {
   public Micropolis() {
     random = DEFAULT_PRNG;
     evaluation = new CityEval(this);
+    disasterManager = new DisasterManager(this);
+    persistence = new CityPersistence(this);
     init(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     initTileBehaviors();
   }
@@ -302,18 +288,6 @@ public class Micropolis {
     return mem;
   }
 
-  private static void loadHistoryArray(int[] array, DataInput dis) throws IOException {
-    for (int i = 0; i < 240; i++) {
-      array[i] = dis.readShort();
-    }
-  }
-
-  private static void writeHistoryArray(int[] array, DataOutput out) throws IOException {
-    for (int i = 0; i < 240; i++) {
-      out.writeShort(array[i]);
-    }
-  }
-
   public void spend(int amount) {
     budget.setTotalFunds(budget.getTotalFunds() - amount);
     fireFundsChanged();
@@ -369,13 +343,13 @@ public class Micropolis {
     }
   }
 
-  private void fireDemandChanged() {
+  void fireDemandChanged() {
     for (CityListener l : cityListeners) {
       l.demandChanged();
     }
   }
 
-  private void fireEarthquakeStarted() {
+  void fireEarthquakeStarted() {
     for (EarthquakeListener l : earthquakeListeners) {
       l.earthquakeStarted();
     }
@@ -387,7 +361,7 @@ public class Micropolis {
     }
   }
 
-  private void fireFundsChanged() {
+  void fireFundsChanged() {
     for (CityListener l : cityListeners) {
       l.fundsChanged();
     }
@@ -399,7 +373,7 @@ public class Micropolis {
     }
   }
 
-  private void fireOptionsChanged() {
+  void fireOptionsChanged() {
     for (CityListener l : cityListeners) {
       l.optionsChanged();
     }
@@ -463,7 +437,7 @@ public class Micropolis {
     return map[ypos][xpos];
   }
 
-  private boolean isTileDozeable(int xpos, int ypos) {
+  boolean isTileDozeable(int xpos, int ypos) {
     return isTileDozeable(new ToolEffect(this, xpos, ypos));
   }
 
@@ -636,7 +610,7 @@ public class Micropolis {
 
       case 15:
         fireAnalysis();
-        doDisasters();
+        disasterManager.doDisasters();
         break;
 
       default:
@@ -794,42 +768,6 @@ public class Micropolis {
     fireMapOverlayDataChanged();
   }
 
-  private void doDisasters() {
-    if (floodCnt > 0) {
-      floodCnt--;
-    }
-
-    int[] disChance = {480, 240, 60};
-    if (noDisasters) return;
-
-    if (random.nextInt(disChance[gameLevel] + 1) != 0) return;
-
-    switch (random.nextInt(9)) {
-      case 0:
-      case 1:
-        setFire();
-        break;
-      case 2:
-      case 3:
-        makeFlood();
-        break;
-      case 4:
-        break;
-      case 5:
-        makeTornado();
-        break;
-      case 6:
-        makeEarthquake();
-        break;
-      case 7:
-      case 8:
-        if (pollutionAverage > 60) {
-          makeMonster();
-        }
-        break;
-    }
-  }
-
   private void fireAnalysis() {
     fireStMap = smoothFirePoliceMap(fireStMap);
     fireStMap = smoothFirePoliceMap(fireStMap);
@@ -884,7 +822,7 @@ public class Micropolis {
     return false;
   }
 
-  private void powerScan() {
+  void powerScan() {
     // clear powerMap
     for (boolean[] bb : powerMap) {
       Arrays.fill(bb, false);
@@ -1491,256 +1429,31 @@ public class Micropolis {
   }
 
   void doMeltdown(int xpos, int ypos) {
-
-    makeExplosion(xpos - 1, ypos - 1);
-    makeExplosion(xpos - 1, ypos + 2);
-    makeExplosion(xpos + 2, ypos - 1);
-    makeExplosion(xpos + 2, ypos + 2);
-
-    for (int x = xpos - 1; x < xpos + 3; x++) {
-      for (int y = ypos - 1; y < ypos + 3; y++) {
-        setTile(x, y, (char) (FIRE + random.nextInt(4)));
-      }
-    }
-
-    for (int z = 0; z < 200; z++) {
-      int x = xpos - 20 + random.nextInt(41);
-      int y = ypos - 15 + random.nextInt(31);
-      if (!testBounds(x, y)) continue;
-
-      int t = map[y][x];
-      if (isZoneCenter(t)) {
-        continue;
-      }
-      if (isCombustible(t) || t == DIRT) {
-        setTile(x, y, RADTILE);
-      }
-    }
-
-    sendMessageAt(MicropolisMessage.MELTDOWN_REPORT, xpos, ypos);
-  }
-
-  private void loadMisc(DataInput dis) throws IOException {
-    dis.readShort(); // [0]... ignored?
-    dis.readShort(); // [1] externalMarket, ignored
-    resPop = dis.readShort(); // [2-4] populations
-    comPop = dis.readShort();
-    indPop = dis.readShort();
-    resValve = dis.readShort(); // [5-7] valves
-    comValve = dis.readShort();
-    indValve = dis.readShort();
-    cityTime = dis.readInt(); // [8-9] city time
-    crimeRamp = dis.readShort(); // [10]
-    polluteRamp = dis.readShort();
-    landValueAverage = dis.readShort(); // [12]
-    crimeAverage = dis.readShort();
-    pollutionAverage = dis.readShort(); // [14]
-    gameLevel = dis.readShort();
-    evaluation.setCityClass(dis.readShort()); // [16]
-    evaluation.setCityScore(dis.readShort());
-
-    for (int i = 18; i < 50; i++) {
-      dis.readShort();
-    }
-
-    budget.setTotalFunds(dis.readInt()); // [50-51] total funds
-    autoBulldoze = dis.readShort() != 0; // 52
-    autoBudget = dis.readShort() != 0;
-    autoGo = dis.readShort() != 0; // 54
-    dis.readShort(); // userSoundOn (this setting not saved to game file
-    // in this edition of the game)
-    cityTax = dis.readShort(); // 56
-    taxEffect = cityTax;
-    int simSpeedAsInt = dis.readShort();
-    simSpeed =
-        simSpeedAsInt >= 0 && simSpeedAsInt <= 4 ? Speed.values()[simSpeedAsInt] : Speed.NORMAL;
-
-    // read budget numbers, convert them to percentages
-    //
-    long n = dis.readInt(); // 58,59... police percent
-    policePercent = n / 65536.0;
-    n = dis.readInt(); // 60,61... fire percent
-    firePercent = n / 65536.0;
-    n = dis.readInt(); // 62,63... road percent
-    roadPercent = n / 65536.0;
-
-    for (int i = 64; i < 120; i++) {
-      dis.readShort();
-    }
-
-    if (cityTime < 0) {
-      cityTime = 0;
-    }
-    if (cityTax < 0 || cityTax > 20) {
-      cityTax = 7;
-    }
-    if (gameLevel < 0 || gameLevel > 2) {
-      gameLevel = 0;
-    }
-    if (evaluation.getCityClass() < 0 || evaluation.getCityClass() > 5) {
-      evaluation.setCityClass(0);
-    }
-    if (evaluation.getCityScore() < 1 || evaluation.getCityScore() > 999) {
-      evaluation.setCityScore(500);
-    }
-
-    resCap = false;
-    comCap = false;
-    indCap = false;
-  }
-
-  private void writeMisc(DataOutput out) throws IOException {
-    out.writeShort(0);
-    out.writeShort(0);
-    out.writeShort(resPop);
-    out.writeShort(comPop);
-    out.writeShort(indPop);
-    out.writeShort(resValve);
-    out.writeShort(comValve);
-    out.writeShort(indValve);
-    // 8
-    out.writeInt(cityTime);
-    out.writeShort(crimeRamp);
-    out.writeShort(polluteRamp);
-    // 12
-    out.writeShort(landValueAverage);
-    out.writeShort(crimeAverage);
-    out.writeShort(pollutionAverage);
-    out.writeShort(gameLevel);
-    // 16
-    out.writeShort(evaluation.getCityClass());
-    out.writeShort(evaluation.getCityScore());
-    // 18
-    for (int i = 18; i < 50; i++) {
-      out.writeShort(0);
-    }
-    // 50
-    out.writeInt(budget.getTotalFunds());
-    out.writeShort(autoBulldoze ? 1 : 0);
-    out.writeShort(autoBudget ? 1 : 0);
-    // 54
-    out.writeShort(autoGo ? 1 : 0);
-    out.writeShort(1); // userSoundOn
-    out.writeShort(cityTax);
-    out.writeShort(simSpeed.ordinal());
-
-    // 58
-    out.writeInt((int) (policePercent * 65536));
-    out.writeInt((int) (firePercent * 65536));
-    out.writeInt((int) (roadPercent * 65536));
-
-    // 64
-    for (int i = 64; i < 120; i++) {
-      out.writeShort(0);
-    }
-  }
-
-  private void loadMap(DataInput dis) throws IOException {
-    for (int x = 0; x < DEFAULT_WIDTH; x++) {
-      for (int y = 0; y < DEFAULT_HEIGHT; y++) {
-        int z = dis.readShort();
-        z &=
-            ~(1024 | 2048 | 4096 | 8192
-                | 16384); // clear ZONEBIT,ANIMBIT,BULLBIT,BURNBIT,CONDBIT on import
-        map[y][x] = (char) z;
-      }
-    }
-  }
-
-  private void writeMap(DataOutput out) throws IOException {
-    for (int x = 0; x < DEFAULT_WIDTH; x++) {
-      for (int y = 0; y < DEFAULT_HEIGHT; y++) {
-        int z = map[y][x];
-        if (isConductive(z & LOMASK)) {
-          z |= 16384; // synthesize CONDBIT on export
-        }
-        if (isCombustible(z & LOMASK)) {
-          z |= 8192; // synthesize BURNBIT on export
-        }
-        if (isTileDozeable(x, y)) {
-          z |= 4096; // synthesize BULLBIT on export
-        }
-        if (isAnimated(z & LOMASK)) {
-          z |= 2048; // synthesize ANIMBIT on export
-        }
-        if (isZoneCenter(z & LOMASK)) {
-          z |= 1024; // synthesize ZONEBIT
-        }
-        out.writeShort(z);
-      }
-    }
+    disasterManager.doMeltdown(xpos, ypos);
   }
 
   public void load(File filename) throws IOException {
-    try (FileInputStream fis = new FileInputStream(filename);
-        DataInputStream dis = new DataInputStream(fis)) {
-      if (fis.getChannel().size() > 27120) {
-        // some editions of the classic Simcity game
-        // start the file off with a 128-byte header,
-        // but otherwise use the same format as us,
-        // so read in that 128-byte header and continue
-        // as before.
-        byte[] bbHeader = new byte[128];
-        fis.read(bbHeader);
-      }
-      load(dis);
-    }
+    persistence.load(filename);
   }
 
-  private void checkPowerMap() {
-    coalCount = 0;
-    nuclearCount = 0;
-
-    powerPlants.clear();
-    for (int y = 0; y < map.length; y++) {
-      for (int x = 0; x < map[y].length; x++) {
-        int tile = getTile(x, y);
-        if (tile == NUCLEAR) {
-          nuclearCount++;
-          powerPlants.add(new CityLocation(x, y));
-        } else if (tile == POWERPLANT) {
-          coalCount++;
-          powerPlants.add(new CityLocation(x, y));
-        }
-      }
-    }
-
-    powerScan();
-  }
-
-  private void load(DataInput dis) throws IOException {
-
-    loadHistoryArray(history.getRes(), dis);
-    loadHistoryArray(history.getCom(), dis);
-    loadHistoryArray(history.getInd(), dis);
-    loadHistoryArray(history.getCrime(), dis);
-    loadHistoryArray(history.getPollution(), dis);
-    loadHistoryArray(history.getMoney(), dis);
-    loadMisc(dis);
-    loadMap(dis);
-
-    checkPowerMap();
-
-    fireWholeMapChanged();
-    fireDemandChanged();
-    fireFundsChanged();
+  public void load(DataInput dis) throws IOException {
+    persistence.load(dis);
   }
 
   public void save(File filename) throws IOException {
-    save(new FileOutputStream(filename));
+    persistence.save(filename);
   }
 
-  private void save(OutputStream outStream) throws IOException {
-    DataOutputStream out = new DataOutputStream(outStream);
-    writeHistoryArray(history.getRes(), out);
-    writeHistoryArray(history.getCom(), out);
-    writeHistoryArray(history.getInd(), out);
-    writeHistoryArray(history.getCrime(), out);
-    writeHistoryArray(history.getPollution(), out);
-    writeHistoryArray(history.getMoney(), out);
-    writeMisc(out);
-    writeMap(out);
-    out.close();
+  public void save(OutputStream outStream) throws IOException {
+    persistence.save(outStream);
+  }
+
+  public CityPersistence getPersistence() {
+    return persistence;
+  }
+
+  void checkPowerMap() {
+    persistence.checkPowerMap();
   }
 
   public void toggleAutoBudget() {
@@ -1754,8 +1467,11 @@ public class Micropolis {
   }
 
   public void toggleDisasters() {
-    noDisasters = !noDisasters;
-    fireOptionsChanged();
+    disasterManager.toggleDisasters();
+  }
+
+  public void setNoDisasters(boolean noDisasters) {
+    disasterManager.setNoDisasters(noDisasters);
   }
 
   public void setSpeed(Speed newSpeed) {
@@ -1807,163 +1523,42 @@ public class Micropolis {
     fireCitySound(sound, new CityLocation(x, y));
   }
 
-  public void makeEarthquake() {
-    makeSound(centerMassX, centerMassY, Sound.EXPLOSION_LOW);
-    fireEarthquakeStarted();
-
-    sendMessageAt(MicropolisMessage.EARTHQUAKE_REPORT, centerMassX, centerMassY);
-    int time = random.nextInt(701) + 300;
-    for (int z = 0; z < time; z++) {
-      int x = random.nextInt(getWidth());
-      int y = random.nextInt(getHeight());
-      assert testBounds(x, y);
-
-      if (isVulnerable(getTile(x, y))) {
-        if (random.nextInt(4) == 0) {
-          setTile(x, y, (char) (FIRE + random.nextInt(8)));
-        } else {
-          setTile(x, y, (char) (RUBBLE + random.nextInt(4)));
-        }
-      }
-    }
+  public DisasterManager getDisasterManager() {
+    return disasterManager;
   }
 
-  private void setFire() {
-    int x = random.nextInt(getWidth());
-    int y = random.nextInt(getHeight());
-    int t = getTile(x, y);
+  public void makeEarthquake() {
+    disasterManager.makeEarthquake();
+  }
 
-    if (isArsonable(t)) {
-      setTile(x, y, (char) (FIRE + random.nextInt(8)));
-      sendMessageAt(MicropolisMessage.FIRE_REPORT, x, y);
-    }
+  public void setFire() {
+    disasterManager.setFire();
   }
 
   public void makeFire() {
-    // forty attempts at finding place to start fire
-    for (int t = 0; t < 40; t++) {
-      int x = random.nextInt(getWidth());
-      int y = random.nextInt(getHeight());
-      int tile = getTile(x, y);
-      if (!isZoneCenter(tile) && isCombustible(tile)) {
-        if (tile > 21 && tile < LASTZONE) {
-          setTile(x, y, (char) (FIRE + random.nextInt(8)));
-          sendMessageAt(MicropolisMessage.FIRE_REPORT, x, y);
-          return;
-        }
-      }
-    }
+    disasterManager.makeFire();
   }
 
-  /**
-   * Force a meltdown to occur.
-   *
-   * @return true if a metldown was initiated.
-   */
   public boolean makeMeltdown() {
-    ArrayList<CityLocation> candidates = new ArrayList<>();
-    for (int y = 0; y < map.length; y++) {
-      for (int x = 0; x < map[y].length; x++) {
-        if (getTile(x, y) == NUCLEAR) {
-          candidates.add(new CityLocation(x, y));
-        }
-      }
-    }
-
-    if (candidates.isEmpty()) {
-      // tell caller that no nuclear plants were found
-      return false;
-    }
-
-    int i = random.nextInt(candidates.size());
-    CityLocation p = candidates.get(i);
-    doMeltdown(p.getX(), p.getY());
-    return true;
+    return disasterManager.makeMeltdown();
   }
 
   public void makeMonster() {
-    MonsterSprite monster = (MonsterSprite) getSprite(SpriteKind.GOD);
-    if (monster != null) {
-      // already have a monster in town
-      monster.setSoundCount(1);
-      monster.setCount(1000);
-      monster.setFlag(false);
-      monster.setDestX(pollutionMaxLocationX);
-      monster.setDestY(pollutionMaxLocationY);
-      return;
-    }
-
-    // try to find a suitable starting spot for monster
-
-    for (int i = 0; i < 300; i++) {
-      int x = random.nextInt(getWidth() - 19) + 10;
-      int y = random.nextInt(getHeight() - 9) + 5;
-      int t = getTile(x, y);
-      if (t == RIVER) {
-        makeMonsterAt(x, y);
-        return;
-      }
-    }
-
-    // no "nice" location found, just start in center of map then
-    makeMonsterAt(getWidth() / 2, getHeight() / 2);
-  }
-
-  private void makeMonsterAt(int xpos, int ypos) {
-    assert !hasSprite(SpriteKind.GOD);
-    sprites.add(new MonsterSprite(this, xpos, ypos));
-    sendMessageAt(MicropolisMessage.MONSTER_REPORT, xpos, ypos);
+    disasterManager.makeMonster();
   }
 
   public void makeTornado() {
-    TornadoSprite tornado = (TornadoSprite) getSprite(SpriteKind.TOR);
-    if (tornado != null) {
-      // already have a tornado, so extend the length of the
-      // existing tornado
-      tornado.setCount(200);
-      return;
-    }
-
-    // FIXME- this is not exactly like the original code
-    int xpos = random.nextInt(getWidth() - 19) + 10;
-    int ypos = random.nextInt(getHeight() - 19) + 10;
-    sprites.add(new TornadoSprite(this, xpos, ypos));
-    sendMessageAt(MicropolisMessage.TORNADO_REPORT, xpos, ypos);
+    disasterManager.makeTornado();
   }
 
   public void makeFlood() {
-    int[] dx = {0, 1, 0, -1};
-    int[] dy = {-1, 0, 1, 0};
-
-    for (int z = 0; z < 300; z++) {
-      int x = random.nextInt(getWidth());
-      int y = random.nextInt(getHeight());
-      int tile = getTile(x, y);
-      if (isRiverEdge(tile)) {
-        for (int t = 0; t < 4; t++) {
-          int xx = x + dx[t];
-          int yy = y + dy[t];
-          if (testBounds(xx, yy)) {
-            int c = map[yy][xx];
-            if (isFloodable(c)) {
-              setTile(xx, yy, FLOOD);
-              floodCnt = 30;
-              sendMessageAt(MicropolisMessage.FLOOD_REPORT, xx, yy);
-              return;
-            }
-          }
-        }
-      }
-    }
+    disasterManager.makeFlood();
   }
 
-  /**
-   * Makes all component tiles of a zone bulldozable. Should be called whenever the key zone tile of
-   * a zone is destroyed, since otherwise the user would no longer have a way of destroying the
-   * zone.
-   *
-   * @see #shutdownZone
-   */
+  void addSprite(Sprite sprite) {
+    sprites.add(sprite);
+  }
+
   void killZone(int xpos, int ypos, int zoneTile) {
     rateOGMem[ypos / 8][xpos / 8] -= 20;
 
@@ -2282,7 +1877,7 @@ public class Micropolis {
   }
 
   public boolean isNoDisasters() {
-    return noDisasters;
+    return disasterManager.isNoDisasters();
   }
 
   public int getGameLevel() {
@@ -2578,7 +2173,11 @@ public class Micropolis {
   }
 
   public int getFloodCnt() {
-    return floodCnt;
+    return disasterManager.getFloodCnt();
+  }
+
+  public void setFloodCnt(int floodCnt) {
+    disasterManager.setFloodCnt(floodCnt);
   }
 
   public int getAcycle() {
@@ -2611,5 +2210,87 @@ public class Micropolis {
 
   public List<CityLocation> getPowerPlants() {
     return powerPlants;
+  }
+
+  public void setResValve(int resValve) {
+    this.resValve = resValve;
+  }
+
+  public void setComValve(int comValve) {
+    this.comValve = comValve;
+  }
+
+  public void setIndValve(int indValve) {
+    this.indValve = indValve;
+  }
+
+  public void setCityTime(int cityTime) {
+    this.cityTime = cityTime;
+  }
+
+  public int getCrimeRamp() {
+    return crimeRamp;
+  }
+
+  public void setCrimeRamp(int crimeRamp) {
+    this.crimeRamp = crimeRamp;
+  }
+
+  public int getPolluteRamp() {
+    return polluteRamp;
+  }
+
+  public void setPolluteRamp(int polluteRamp) {
+    this.polluteRamp = polluteRamp;
+  }
+
+  public void setLandValueAverage(int landValueAverage) {
+    this.landValueAverage = landValueAverage;
+  }
+
+  public void setCrimeAverage(int crimeAverage) {
+    this.crimeAverage = crimeAverage;
+  }
+
+  public void setPollutionAverage(int pollutionAverage) {
+    this.pollutionAverage = pollutionAverage;
+  }
+
+  public void setAutoBulldoze(boolean autoBulldoze) {
+    this.autoBulldoze = autoBulldoze;
+    fireOptionsChanged();
+  }
+
+  public void setAutoBudget(boolean autoBudget) {
+    this.autoBudget = autoBudget;
+    fireOptionsChanged();
+  }
+
+  public boolean isAutoGo() {
+    return autoGo;
+  }
+
+  public void setAutoGo(boolean autoGo) {
+    this.autoGo = autoGo;
+  }
+
+  public int getTaxEffect() {
+    return taxEffect;
+  }
+
+  public void setTaxEffect(int taxEffect) {
+    this.taxEffect = taxEffect;
+  }
+
+  public void setResCap(boolean resCap) {
+    this.resCap = resCap;
+  }
+
+  public void setComCap(boolean comCap) {
+    this.comCap = comCap;
+  }
+
+  public void setIndCap(boolean indCap) {
+    this.indCap = indCap;
   }
 }
