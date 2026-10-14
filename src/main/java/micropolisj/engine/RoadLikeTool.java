@@ -31,10 +31,17 @@ import static micropolisj.engine.TileConstants.VRAIL;
 import static micropolisj.engine.TileConstants.VRAILROAD;
 import static micropolisj.engine.TileConstants.VROADPOWER;
 import static micropolisj.engine.TileConstants.canAutoBulldozeRRW;
-import static micropolisj.engine.TileConstants.isConductive;
 import static micropolisj.engine.TileConstants.neutralizeRoad;
 
+import java.util.function.IntPredicate;
+
 class RoadLikeTool extends ToolStroke {
+  /** Extra cost of auto-bulldozing the rubble or similar that is in the way. */
+  private static final int AUTO_BULLDOZE_COST = 1;
+
+  /** Returned by {@link #clearingCost} when the tile in the way cannot be cleared. */
+  private static final int CANNOT_CLEAR = -1;
+
   RoadLikeTool(Micropolis city, MicropolisTool tool, int xpos, int ypos) {
     super(city, tool, xpos, ypos);
   }
@@ -159,45 +166,11 @@ class RoadLikeTool extends ToolStroke {
       case REDGE:
       case CHANNEL:
         cost = tunnelCost;
-
-        // check east
-        {
-          char eTile = neutralizeRoad(eff.getTile(1, 0));
-          if (eTile == RAILHPOWERV || eTile == HRAIL || eTile >= LHRAIL && eTile <= HRAILROAD) {
-            eff.setTile(0, 0, HRAIL);
-            break;
-          }
+        if (!layAcrossWater(eff, TUNNEL)) {
+          // cannot do rail here
+          return false;
         }
-
-        // check west
-        {
-          char wTile = neutralizeRoad(eff.getTile(-1, 0));
-          if (wTile == RAILHPOWERV || wTile == HRAIL || wTile > VRAIL && wTile < VRAILROAD) {
-            eff.setTile(0, 0, HRAIL);
-            break;
-          }
-        }
-
-        // check south
-        {
-          char sTile = neutralizeRoad(eff.getTile(0, 1));
-          if (sTile == RAILVPOWERH || sTile == VRAILROAD || sTile > HRAIL && sTile < HRAILROAD) {
-            eff.setTile(0, 0, VRAIL);
-            break;
-          }
-        }
-
-        // check north
-        {
-          char nTile = neutralizeRoad(eff.getTile(0, -1));
-          if (nTile == RAILVPOWERH || nTile == VRAILROAD || nTile > HRAIL && nTile < HRAILROAD) {
-            eff.setTile(0, 0, VRAIL);
-            break;
-          }
-        }
-
-        // cannot do road here
-        return false;
+        break;
 
       case LHPOWER: // rail on power
         eff.setTile(0, 0, RAILVPOWERH);
@@ -216,14 +189,12 @@ class RoadLikeTool extends ToolStroke {
         break;
 
       default:
-        if (tile != DIRT) {
-          if (getCity().isAutoBulldoze() && canAutoBulldozeRRW(tile)) {
-            cost += 1; // autodoze cost
-          } else {
-            // cannot do rail here
-            return false;
-          }
+        int clearing = clearingCost(tile);
+        if (clearing == CANNOT_CLEAR) {
+          // cannot do rail here
+          return false;
         }
+        cost += clearing;
 
         // rail on dirt
         eff.setTile(0, 0, LHRAIL);
@@ -240,59 +211,18 @@ class RoadLikeTool extends ToolStroke {
 
     int cost = roadCost;
 
+    // unlike layRail and layWire, the tile is not neutralized here
     char tile = (char) eff.getTile(0, 0);
     switch (tile) {
       case RIVER: // road on water
       case REDGE:
       case CHANNEL: // check how to build bridges, if possible.
         cost = bridgeCost;
-
-        // check east
-        {
-          char eTile = neutralizeRoad(eff.getTile(1, 0));
-          if (eTile == VRAILROAD
-              || eTile == HBRIDGE
-              || eTile >= TileConstants.ROADS && eTile <= HROADPOWER) {
-            eff.setTile(0, 0, HBRIDGE);
-            break;
-          }
+        if (!layAcrossWater(eff, BRIDGE)) {
+          // cannot do road here
+          return false;
         }
-
-        // check west
-        {
-          char wTile = neutralizeRoad(eff.getTile(-1, 0));
-          if (wTile == VRAILROAD
-              || wTile == HBRIDGE
-              || wTile >= TileConstants.ROADS && wTile <= INTERSECTION) {
-            eff.setTile(0, 0, HBRIDGE);
-            break;
-          }
-        }
-
-        // check south
-        {
-          char sTile = neutralizeRoad(eff.getTile(0, 1));
-          if (sTile == HRAILROAD
-              || sTile == VROADPOWER
-              || sTile >= VBRIDGE && sTile <= INTERSECTION) {
-            eff.setTile(0, 0, VBRIDGE);
-            break;
-          }
-        }
-
-        // check north
-        {
-          char nTile = neutralizeRoad(eff.getTile(0, -1));
-          if (nTile == HRAILROAD
-              || nTile == VROADPOWER
-              || nTile >= VBRIDGE && nTile <= INTERSECTION) {
-            eff.setTile(0, 0, VBRIDGE);
-            break;
-          }
-        }
-
-        // cannot do road here
-        return false;
+        break;
 
       case LHPOWER: // road on power
         eff.setTile(0, 0, VROADPOWER);
@@ -311,14 +241,12 @@ class RoadLikeTool extends ToolStroke {
         break;
 
       default:
-        if (tile != DIRT) {
-          if (getCity().isAutoBulldoze() && canAutoBulldozeRRW(tile)) {
-            cost += 1; // autodoze cost
-          } else {
-            // cannot do road here
-            return false;
-          }
+        int clearing = clearingCost(tile);
+        if (clearing == CANNOT_CLEAR) {
+          // cannot do road here
+          return false;
         }
+        cost += clearing;
 
         // road on dirt;
         // just build a plain road, fixZone will fix it.
@@ -344,53 +272,11 @@ class RoadLikeTool extends ToolStroke {
       case REDGE:
       case CHANNEL:
         cost = underwaterWireCost;
-
-        // check east
-        {
-          int tmp = eff.getTile(1, 0);
-          char tmpn = neutralizeRoad(tmp);
-
-          if (isConductive(tmp) && tmpn != HROADPOWER && tmpn != RAILHPOWERV && tmpn != HPOWER) {
-            eff.setTile(0, 0, VPOWER);
-            break;
-          }
+        if (!layAcrossWater(eff, UNDERWATER_WIRE)) {
+          // cannot do wire here
+          return false;
         }
-
-        // check west
-        {
-          int tmp = eff.getTile(-1, 0);
-          char tmpn = neutralizeRoad(tmp);
-
-          if (isConductive(tmp) && tmpn != HROADPOWER && tmpn != RAILHPOWERV && tmpn != HPOWER) {
-            eff.setTile(0, 0, VPOWER);
-            break;
-          }
-        }
-
-        // check south
-        {
-          int tmp = eff.getTile(0, 1);
-          char tmpn = neutralizeRoad(tmp);
-
-          if (isConductive(tmp) && tmpn != VROADPOWER && tmpn != RAILVPOWERH && tmpn != VPOWER) {
-            eff.setTile(0, 0, HPOWER);
-            break;
-          }
-        }
-
-        // check north
-        {
-          int tmp = eff.getTile(0, -1);
-          char tmpn = neutralizeRoad(tmp);
-
-          if (isConductive(tmp) && tmpn != VROADPOWER && tmpn != RAILVPOWERH && tmpn != VPOWER) {
-            eff.setTile(0, 0, HPOWER);
-            break;
-          }
-        }
-
-        // cannot do wire here
-        return false;
+        break;
 
       case TileConstants.ROADS: // wire on E/W road
         eff.setTile(0, 0, HROADPOWER);
@@ -409,14 +295,12 @@ class RoadLikeTool extends ToolStroke {
         break;
 
       default:
-        if (tile != DIRT) {
-          if (getCity().isAutoBulldoze() && canAutoBulldozeRRW(tile)) {
-            cost += 1; // autodoze cost
-          } else {
-            // cannot do wire here
-            return false;
-          }
+        int clearing = clearingCost(tile);
+        if (clearing == CANNOT_CLEAR) {
+          // cannot do wire here
+          return false;
         }
+        cost += clearing;
 
         // wire on dirt
         eff.setTile(0, 0, LHPOWER);
@@ -425,5 +309,117 @@ class RoadLikeTool extends ToolStroke {
 
     eff.spend(cost);
     return true;
+  }
+
+  /**
+   * Extra cost of clearing {@code tile} to make room for a road, rail or wire: nothing for bare
+   * dirt, {@link #AUTO_BULLDOZE_COST} for rubble and the like when auto-bulldoze is on, and {@link
+   * #CANNOT_CLEAR} otherwise.
+   */
+  private int clearingCost(char tile) {
+    if (tile == DIRT) {
+      return 0;
+    }
+    if (getCity().isAutoBulldoze() && canAutoBulldozeRRW(tile)) {
+      return AUTO_BULLDOZE_COST;
+    }
+    return CANNOT_CLEAR;
+  }
+
+  /**
+   * Lays, over the water at (0, 0), the tile that carries a road, rail or wire, if a neighbor
+   * allows it. The neighbors are tried in the order east, west, south, north, and the first match
+   * wins.
+   *
+   * @return false, leaving the tile untouched, if no neighbor allows the crossing
+   */
+  private static boolean layAcrossWater(ToolEffectIfc eff, WaterCrossing crossing) {
+    if (crossing.east().test(eff.getTile(1, 0)) || crossing.west().test(eff.getTile(-1, 0))) {
+      eff.setTile(0, 0, crossing.eastWestTile());
+      return true;
+    }
+    if (crossing.south().test(eff.getTile(0, 1)) || crossing.north().test(eff.getTile(0, -1))) {
+      eff.setTile(0, 0, crossing.northSouthTile());
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * How a road, rail or wire crosses water: for each neighbor of the water tile, whether it lets
+   * the crossing continue in that direction, and the tile placed over the water when it does.
+   *
+   * @param east tests the tile to the east of the water
+   * @param west tests the tile to the west of the water
+   * @param south tests the tile to the south of the water
+   * @param north tests the tile to the north of the water
+   * @param eastWestTile placed when the east or the west neighbor matches
+   * @param northSouthTile placed when the south or the north neighbor matches
+   */
+  private record WaterCrossing(
+      IntPredicate east,
+      IntPredicate west,
+      IntPredicate south,
+      IntPredicate north,
+      char eastWestTile,
+      char northSouthTile) {}
+
+  private static final WaterCrossing BRIDGE =
+      new WaterCrossing(
+          RoadLikeTool::bridgeReachesEast,
+          RoadLikeTool::bridgeReachesWest,
+          RoadLikeTool::bridgeReachesNorthOrSouth,
+          RoadLikeTool::bridgeReachesNorthOrSouth,
+          HBRIDGE,
+          VBRIDGE);
+
+  private static final WaterCrossing TUNNEL =
+      new WaterCrossing(
+          RoadLikeTool::tunnelReachesEastOrWest,
+          RoadLikeTool::tunnelReachesEastOrWest,
+          RoadLikeTool::tunnelReachesNorthOrSouth,
+          RoadLikeTool::tunnelReachesNorthOrSouth,
+          HRAIL,
+          VRAIL);
+
+  // As in the original code, an east or west neighbor places VPOWER, and a north or south one
+  // places HPOWER.
+  private static final WaterCrossing UNDERWATER_WIRE =
+      new WaterCrossing(
+          TileConstants::wireConnectsWest,
+          TileConstants::wireConnectsEast,
+          TileConstants::wireConnectsNorth,
+          TileConstants::wireConnectsSouth,
+          VPOWER,
+          HPOWER);
+
+  // The predicates below test the tile next to the water, to see whether a bridge or tunnel can
+  // reach it. Road tiles that carry traffic are first converted to their plain equivalent.
+
+  private static boolean bridgeReachesEast(int tile) {
+    int t = neutralizeRoad(tile);
+    return t == VRAILROAD || t == HBRIDGE || t >= TileConstants.ROADS && t <= HROADPOWER;
+  }
+
+  // NOTE: unlike bridgeReachesEast, this does not accept HROADPOWER. The asymmetry is kept as it
+  // was in the original code.
+  private static boolean bridgeReachesWest(int tile) {
+    int t = neutralizeRoad(tile);
+    return t == VRAILROAD || t == HBRIDGE || t >= TileConstants.ROADS && t <= INTERSECTION;
+  }
+
+  private static boolean bridgeReachesNorthOrSouth(int tile) {
+    int t = neutralizeRoad(tile);
+    return t == HRAILROAD || t == VROADPOWER || t >= VBRIDGE && t <= INTERSECTION;
+  }
+
+  private static boolean tunnelReachesEastOrWest(int tile) {
+    int t = neutralizeRoad(tile);
+    return t == RAILHPOWERV || t == HRAIL || t >= LHRAIL && t <= HRAILROAD;
+  }
+
+  private static boolean tunnelReachesNorthOrSouth(int tile) {
+    int t = neutralizeRoad(tile);
+    return t == RAILVPOWERH || t == VRAILROAD || t > HRAIL && t < HRAILROAD;
   }
 }
