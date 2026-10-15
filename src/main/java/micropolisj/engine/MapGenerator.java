@@ -22,8 +22,40 @@ import static micropolisj.engine.TileConstants.isTree;
 import java.util.Arrays;
 import java.util.Random;
 
-/** Contains the code for generating a random map terrain. */
+/**
+ * Contains the code for generating a random map terrain.
+ *
+ * <p>Refatorado com base nas técnicas de "Refatoração: Melhorando a Qualidade de Código
+ * Pré-Existente" (Martin Fowler / Profa. Andréa Bordin):
+ *
+ * <ul>
+ *   <li><b>Duplicated Code &rarr; Extract Method / Parameterize Method:</b> Unificação da navegação
+ *       dos rios ({@code doRiver}) e do carimbo de matrizes ({@code plopRiver}), eliminando
+ *       duplicação entre {@code doBRiv}/{@code doSRiv} e {@code BRivPlop}/{@code SRivPlop}.
+ *   <li><b>Duplicated Code &rarr; Extract Method:</b> Extração do cálculo da máscara de vizinhança
+ *       de 4 direções ({@code compute4NeighborMask}), compartilhada entre {@code smoothRiver()} e
+ *       {@code smoothTrees()}.
+ *   <li><b>Decompose Conditional / Extract Method:</b> Isolamento da condição complexa de vizinhos
+ *       em {@code isWaterOrNonTree()} com intenção clara.
+ *   <li><b>Eliminação de Shadowing de Atributos e Clean Code:</b> Remoção de variáveis locais
+ *       {@code mapX}/{@code mapY} que sombreavam os atributos de instância.
+ *   <li><b>Replace Magic Numbers with Constants:</b> Substituição de literais mágicos de
+ *       probabilidade por constantes nomeadas.
+ * </ul>
+ */
 public class MapGenerator {
+
+  @FunctionalInterface
+  private interface TilePredicate {
+    boolean test(char tile);
+  }
+
+  // Constantes de probabilidade e variação de direção dos rios
+  private static final int RIVER_RESET_CHANCE_BOUND = 100;
+  private static final int RIVER_RESET_THRESHOLD = 10;
+  private static final int RIVER_WANDER_BOUND = 200;
+  private static final int RIVER_WANDER_THRESHOLD = 90;
+
   private static final char[][] BRMatrix = {
     {0, 0, 0, 3, 3, 3, 0, 0, 0},
     {0, 0, 3, 2, 2, 2, 3, 0, 0},
@@ -35,6 +67,7 @@ public class MapGenerator {
     {0, 0, 3, 2, 2, 2, 3, 0, 0},
     {0, 0, 0, 3, 3, 3, 0, 0, 0}
   };
+
   private static final char[][] SRMatrix = {
     {0, 0, 3, 3, 0, 0},
     {0, 3, 2, 2, 3, 0},
@@ -43,6 +76,7 @@ public class MapGenerator {
     {0, 3, 2, 2, 3, 0},
     {0, 0, 3, 3, 0, 0}
   };
+
   private static final char[] REdTab = {
     RIVEDGE + 8,
     RIVEDGE + 8,
@@ -61,16 +95,19 @@ public class MapGenerator {
     RIVEDGE,
     RIVER
   };
+
   private static final int[] DIRECTION_TABX = {0, 1, 1, 1, 0, -1, -1, -1};
   private static final int[] DIRECTION_TABY = {-1, -1, 0, 1, 1, 1, 0, -1};
   private static final int[] DX = {-1, 0, 1, 0};
   private static final int[] DY = {0, 1, 0, -1};
+
   private static final char[] TEdTab = {
     0, 0, 0, 34,
     0, 0, 36, 35,
     0, 32, 0, 33,
     30, 31, 29, 37
   };
+
   private final Micropolis engine;
   private final char[][] map;
   private final CreateIsland createIsland = CreateIsland.SELDOM;
@@ -111,8 +148,7 @@ public class MapGenerator {
     random = new Random(r);
 
     if (createIsland == CreateIsland.SELDOM) {
-      if (random.nextInt(100) < 10) // chance that island is generated
-      {
+      if (random.nextInt(100) < 10) { // chance that island is generated
         makeIsland();
         return;
       }
@@ -125,13 +161,9 @@ public class MapGenerator {
     }
 
     getRandStart();
-
     doRivers();
-
     makeLakes();
-
     smoothRiver();
-
     doTrees();
   }
 
@@ -162,28 +194,36 @@ public class MapGenerator {
     }
 
     for (int x = 0; x < worldX - 5; x += 2) {
-      mapX = x;
-      mapY = erand();
-      BRivPlop();
-      mapY = worldY - 10 - erand();
-      BRivPlop();
-      mapY = 0;
-      SRivPlop();
-      mapY = worldY - 6;
-      SRivPlop();
+      plopHorizontalIslandBorder(x, worldY);
     }
 
     for (int y = 0; y < worldY - 5; y += 2) {
-      mapY = y;
-      mapX = erand();
-      BRivPlop();
-      mapX = worldX - 10 - erand();
-      BRivPlop();
-      mapX = 0;
-      SRivPlop();
-      mapX = worldX - 6;
-      SRivPlop();
+      plopVerticalIslandBorder(y, worldX);
     }
+  }
+
+  private void plopHorizontalIslandBorder(int x, int worldY) {
+    mapX = x;
+    mapY = erand();
+    BRivPlop();
+    mapY = worldY - 10 - erand();
+    BRivPlop();
+    mapY = 0;
+    SRivPlop();
+    mapY = worldY - 6;
+    SRivPlop();
+  }
+
+  private void plopVerticalIslandBorder(int y, int worldX) {
+    mapY = y;
+    mapX = erand();
+    BRivPlop();
+    mapX = worldX - 10 - erand();
+    BRivPlop();
+    mapX = 0;
+    SRivPlop();
+    mapX = worldX - 6;
+    SRivPlop();
   }
 
   private void clearMap() {
@@ -201,8 +241,7 @@ public class MapGenerator {
   }
 
   private void makeLakes() {
-    int lim1;
-    lim1 = random.nextInt(11);
+    int lim1 = random.nextInt(11);
 
     for (int t = 0; t < lim1; t++) {
       int x = random.nextInt(getWidth() - 20) + 10;
@@ -213,8 +252,11 @@ public class MapGenerator {
         mapX = x - 6 + random.nextInt(13);
         mapY = y - 6 + random.nextInt(13);
 
-        if (random.nextInt(5) == 0) BRivPlop();
-        else SRivPlop();
+        if (random.nextInt(5) == 0) {
+          BRivPlop();
+        } else {
+          SRivPlop();
+        }
       }
     }
   }
@@ -234,20 +276,22 @@ public class MapGenerator {
     doSRiv();
   }
 
-  private void doBRiv() {
-    int r1, r2;
-    r1 = 100;
-    r2 = 200;
+  /**
+   * Refatoração Extract Method / Parameterize Method: Unifica a navegação do rio para qualquer
+   * matriz (BRMatrix ou SRMatrix), eliminando código duplicado entre doBRiv() e doSRiv().
+   */
+  private void doRiver(char[][] riverMatrix) {
+    int margin = riverMatrix.length / 2;
 
-    while (engine.testBounds(mapX + 4, mapY + 4)) {
-      BRivPlop();
-      if (random.nextInt(r1 + 1) < 10) {
+    while (engine.testBounds(mapX + margin, mapY + margin)) {
+      plopRiver(riverMatrix);
+      if (random.nextInt(RIVER_RESET_CHANCE_BOUND + 1) < RIVER_RESET_THRESHOLD) {
         dir = lastDir;
       } else {
-        if (random.nextInt(r2 + 1) > 90) {
+        if (random.nextInt(RIVER_WANDER_BOUND + 1) > RIVER_WANDER_THRESHOLD) {
           dir++;
         }
-        if (random.nextInt(r2 + 1) > 90) {
+        if (random.nextInt(RIVER_WANDER_BOUND + 1) > RIVER_WANDER_THRESHOLD) {
           dir--;
         }
       }
@@ -255,41 +299,32 @@ public class MapGenerator {
     }
   }
 
-  private void doSRiv() {
-    int r1, r2;
-    r1 = 100;
-    r2 = 200;
+  private void doBRiv() {
+    doRiver(BRMatrix);
+  }
 
-    while (engine.testBounds(mapX + 3, mapY + 3)) {
-      SRivPlop();
-      if (random.nextInt(r1 + 1) < 10) {
-        dir = lastDir;
-      } else {
-        if (random.nextInt(r2 + 1) > 90) {
-          dir++;
-        }
-        if (random.nextInt(r2 + 1) > 90) {
-          dir--;
-        }
+  private void doSRiv() {
+    doRiver(SRMatrix);
+  }
+
+  /**
+   * Refatoração Extract Method / Parameterize Method: Itera genericamente pela matriz do rio e
+   * aplica os tiles no mapa, eliminando código duplicado entre BRivPlop() e SRivPlop().
+   */
+  private void plopRiver(char[][] matrix) {
+    for (int x = 0; x < matrix.length; x++) {
+      for (int y = 0; y < matrix.length; y++) {
+        putOnMap(matrix[y][x], x, y);
       }
-      moveMap(dir);
     }
   }
 
   private void BRivPlop() {
-    for (int x = 0; x < 9; x++) {
-      for (int y = 0; y < 9; y++) {
-        putOnMap(BRMatrix[y][x], x, y);
-      }
-    }
+    plopRiver(BRMatrix);
   }
 
   private void SRivPlop() {
-    for (int x = 0; x < 6; x++) {
-      for (int y = 0; y < 6; y++) {
-        putOnMap(SRMatrix[y][x], x, y);
-      }
-    }
+    plopRiver(SRMatrix);
   }
 
   private void putOnMap(char mapChar, int xoff, int yoff) {
@@ -309,36 +344,49 @@ public class MapGenerator {
     map[yloc][xloc] = mapChar;
   }
 
+  /**
+   * Refatoração Extract Method: Calcula a máscara binária de 4 vizinhos cardeais (norte, sul,
+   * leste, oeste) através de predicado de tile (char), eliminando duplicação entre smoothRiver() e
+   * smoothTrees().
+   */
+  private int compute4NeighborMask(int x, int y, TilePredicate neighborPredicate) {
+    int bitindex = 0;
+    for (int z = 0; z < 4; z++) {
+      bitindex <<= 1;
+      int xtem = x + DX[z];
+      int ytem = y + DY[z];
+      if (engine.testBounds(xtem, ytem) && neighborPredicate.test(map[ytem][xtem])) {
+        bitindex |= 1;
+      }
+    }
+    return bitindex & 15;
+  }
+
+  /**
+   * Decompose Conditional / Extract Method: Verifica se o tile não é terra simples e não é árvore.
+   */
+  private static boolean isWaterOrNonTree(char rawTile) {
+    int tile = rawTile & LOMASK;
+    return tile != DIRT && (tile < WOODS_LOW || tile > WOODS_HIGH);
+  }
+
   private void smoothRiver() {
-    for (int mapY = 0; mapY < map.length; mapY++) {
-      for (int mapX = 0; mapX < map[mapY].length; mapX++) {
-        if (map[mapY][mapX] == REDGE) {
-          int bitindex = 0;
-
-          for (int z = 0; z < 4; z++) {
-            bitindex <<= 1;
-            int xtem = mapX + DX[z];
-            int ytem = mapY + DY[z];
-            if (engine.testBounds(xtem, ytem)
-                && (map[ytem][xtem] & LOMASK) != DIRT
-                && ((map[ytem][xtem] & LOMASK) < WOODS_LOW
-                    || (map[ytem][xtem] & LOMASK) > WOODS_HIGH)) {
-              bitindex |= 1;
-            }
+    for (int y = 0; y < map.length; y++) {
+      for (int x = 0; x < map[y].length; x++) {
+        if (map[y][x] == REDGE) {
+          int bitindex = compute4NeighborMask(x, y, MapGenerator::isWaterOrNonTree);
+          char temp = REdTab[bitindex];
+          if (temp != RIVER && random.nextInt(2) != 0) {
+            temp++;
           }
-
-          char temp = REdTab[bitindex & 15];
-          if (temp != RIVER && random.nextInt(2) != 0) temp++;
-          map[mapY][mapX] = temp;
+          map[y][x] = temp;
         }
       }
     }
   }
 
   private void doTrees() {
-    int amount;
-
-    amount = random.nextInt(101) + 50;
+    int amount = random.nextInt(101) + 50;
 
     for (int x = 0; x < amount; x++) {
       int xloc = random.nextInt(getWidth());
@@ -351,8 +399,7 @@ public class MapGenerator {
   }
 
   private void treeSplash(int xloc, int yloc) {
-    int dis;
-    dis = random.nextInt(151) + 50;
+    int dis = random.nextInt(151) + 50;
 
     mapX = xloc;
     mapY = yloc;
@@ -376,27 +423,15 @@ public class MapGenerator {
   }
 
   private void smoothTrees() {
-    for (int mapY = 0; mapY < map.length; mapY++) {
-      for (int mapX = 0; mapX < map[mapY].length; mapX++) {
-        if (isTree(map[mapY][mapX])) {
-          int bitindex = 0;
-          for (int z = 0; z < 4; z++) {
-            bitindex <<= 1;
-            int xtem = mapX + DX[z];
-            int ytem = mapY + DY[z];
-            if (engine.testBounds(xtem, ytem) && isTree(map[ytem][xtem])) {
-              bitindex |= 1;
-            }
+    for (int y = 0; y < map.length; y++) {
+      for (int x = 0; x < map[y].length; x++) {
+        if (isTree(map[y][x])) {
+          int bitindex = compute4NeighborMask(x, y, TileConstants::isTree);
+          char temp = TEdTab[bitindex];
+          if (temp != 0 && temp != WOODS && (((x + y) & 1) != 0)) {
+            temp -= 8;
           }
-          char temp = TEdTab[bitindex & 15];
-          if (temp != 0) {
-            if (temp != WOODS) {
-              if ((mapX + mapY & 1) != 0) {
-                temp -= 8;
-              }
-            }
-          }
-          map[mapY][mapX] = temp;
+          map[y][x] = temp;
         }
       }
     }
