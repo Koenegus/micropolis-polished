@@ -93,6 +93,7 @@ public class CityEval {
     z += engine.getAirportCount() * 10000;
     z += engine.getCoalCount() * 3000;
     z += engine.getNuclearCount() * 6000;
+    z += engine.getUniversityCount() * 4000;
     cityAssValue = z * 1000;
   }
 
@@ -255,6 +256,10 @@ public class CityEval {
     int tm = engine.getUnpoweredZoneCount() + engine.getPoweredZoneCount();
     sm = tm != 0 ? (double) engine.getPoweredZoneCount() / tm : 1.0;
     z *= sm;
+
+    if (engine.getUniversityCount() > 0) {
+      z += Math.min(50, engine.getUniversityCount() * 15);
+    }
 
     z = clamp(z);
 
