@@ -152,6 +152,32 @@ public class MicropolisTest {
     assertThat(notified[0]).isTrue();
   }
 
+  @Test
+  public void testBuildUniversitySpends3000AndPlaces4x4Zone() {
+    micropolis.setFunds(10000);
+
+    ToolStroke stroke = MicropolisTool.UNIVERSITY.beginStroke(micropolis, 20, 20);
+    ToolResult result = stroke.apply();
+
+    assertThat(result).isEqualTo(ToolResult.SUCCESS);
+    assertThat(micropolis.getBudget().getTotalFunds()).isEqualTo(7000);
+    assertThat(micropolis.getTile(20, 20)).isEqualTo(UNIVERSITY);
+    assertThat(micropolis.getTile(19, 19)).isEqualTo(UNIVERSITY_BASE);
+    assertThat(micropolis.getTile(22, 22)).isEqualTo(UNIVERSITY_LAST);
+  }
+
+  @Test
+  public void testUniversityCountAndEvaluationAssessedValue() {
+    micropolis.setFunds(10000);
+    MicropolisTool.UNIVERSITY.beginStroke(micropolis, 20, 20).apply();
+
+    for (int i = 0; i < 22; i++) {
+      micropolis.animate();
+    }
+
+    assertThat(micropolis.getUniversityCount()).isEqualTo(1);
+  }
+
   /**
    * Builds a {@link CityListener} stub that runs the given callback on {@code fundsChanged()} and
    * throws on any other invocation, since those are irrelevant to this test.
