@@ -1009,3 +1009,20 @@
 957   misc_animation@0,2080
 958   misc_animation@0,2096
 959   misc_animation@0,2112
+# BEGIN UNIVERSITY #
+960   university@0,0           (conducts)
+961   university@16,0          (conducts)
+962   university@32,0          (conducts)
+963   university@48,0          (conducts)
+964   university@0,16          (conducts)
+965   university@16,16   (zone)(conducts)(building=4x4)(behavior=UNIVERSITY)(description=#27)
+966   university@32,16         (conducts)
+967   university@48,16         (conducts)
+968   university@0,32          (conducts)
+969   university@16,32         (conducts)
+970   university@32,32         (conducts)
+971   university@48,32         (conducts)
+972   university@0,48          (conducts)
+973   university@16,48         (conducts)
+974   university@32,48         (conducts)
+975   university@48,48         (conducts)
