@@ -12,5 +12,6 @@ public enum Behavior {
   STADIUM_EMPTY,
   STADIUM_FULL,
   AIRPORT,
-  SEAPORT
+  SEAPORT,
+  UNIVERSITY
 }
