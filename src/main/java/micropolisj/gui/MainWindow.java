@@ -763,8 +763,18 @@ public class MainWindow extends JFrame implements CityListener, EarthquakeListen
             : tool.name();
 
     JToggleButton btn = new JToggleButton();
-    btn.setIcon(new ImageIcon(MainWindow.class.getResource(iconName)));
-    btn.setSelectedIcon(new ImageIcon(MainWindow.class.getResource(iconSelectedName)));
+    URL iconUrl = MainWindow.class.getResource(iconName);
+    URL iconSelectedUrl = MainWindow.class.getResource(iconSelectedName);
+    if (iconUrl != null) {
+      btn.setIcon(new ImageIcon(iconUrl));
+    } else if (tool == MicropolisTool.UNIVERSITY) {
+      btn.setIcon(TileImages.createUniversityToolIcon(false));
+    }
+    if (iconSelectedUrl != null) {
+      btn.setSelectedIcon(new ImageIcon(iconSelectedUrl));
+    } else if (tool == MicropolisTool.UNIVERSITY) {
+      btn.setSelectedIcon(TileImages.createUniversityToolIcon(true));
+    }
     btn.setToolTipText(tipText);
     btn.setMargin(new Insets(0, 0, 0, 0));
     btn.setBorderPainted(false);
@@ -849,6 +859,7 @@ public class MainWindow extends JFrame implements CityListener, EarthquakeListen
     gridBox.add(b6, constraints);
 
     b6.add(makeToolBtn(MicropolisTool.AIRPORT));
+    b6.add(makeToolBtn(MicropolisTool.UNIVERSITY));
 
     // add glue to make all elements align toward top
     constraints.gridy++;
