@@ -122,6 +122,9 @@ public class TileConstants {
   static final char VBRDG1 = 949;
   static final char VBRDG2 = 950;
   static final char VBRDG3 = 951;
+  static final char UNIVERSITY_BASE = 960;
+  static final char UNIVERSITY = 965;
+  static final char UNIVERSITY_LAST = 975;
   private static final char FIRSTRIVEDGE = 5;
   private static final char LASTRIVEDGE = 20;
   private static final char LASTRUBBLE = 47;
@@ -231,7 +234,9 @@ public class TileConstants {
   public static boolean isArsonable(int tile) {
     assert (tile & LOMASK) == tile;
 
-    return !isZoneCenter(tile) && tile >= LHTHR && tile <= LASTZONE;
+    return !isZoneCenter(tile)
+        && ((tile >= LHTHR && tile <= LASTZONE)
+            || (tile >= UNIVERSITY_BASE && tile <= UNIVERSITY_LAST));
   }
 
   // used by Sprite::destroyTile
@@ -290,7 +295,9 @@ public class TileConstants {
   public static boolean isVulnerable(int tile) {
     assert (tile & LOMASK) == tile;
 
-    return tile >= RESBASE && tile <= LASTZONE && !isZoneCenter(tile);
+    return !isZoneCenter(tile)
+        && ((tile >= RESBASE && tile <= LASTZONE)
+            || (tile >= UNIVERSITY_BASE && tile <= UNIVERSITY_LAST));
   }
 
   public static boolean checkWet(int tile) {
