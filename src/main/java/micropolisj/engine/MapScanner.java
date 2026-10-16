@@ -31,6 +31,7 @@ import static micropolisj.engine.TileConstants.POWERPLANT;
 import static micropolisj.engine.TileConstants.RESCLR;
 import static micropolisj.engine.TileConstants.RZB;
 import static micropolisj.engine.TileConstants.STADIUM;
+import static micropolisj.engine.TileConstants.UNIVERSITY;
 import static micropolisj.engine.TileConstants.commercialZonePop;
 import static micropolisj.engine.TileConstants.getZoneSizeFor;
 import static micropolisj.engine.TileConstants.industrialZonePop;
@@ -107,6 +108,9 @@ class MapScanner extends TileBehavior {
         return;
       case SEAPORT:
         doSeaport();
+        return;
+      case UNIVERSITY:
+        doUniversity();
         return;
       default:
         assert false;
@@ -298,6 +302,18 @@ class MapScanner extends TileBehavior {
 
     if (powerOn && !getCity().hasSprite(SpriteKind.SHI)) {
       getCity().generateShip();
+    }
+  }
+
+  private void doUniversity() {
+    boolean powerOn = checkZonePower();
+    getCity().setUniversityCount(getCity().getUniversityCount() + 1);
+    if (getCity().getCityTime() % 16 == 0) {
+      repairZone(UNIVERSITY, 4);
+    }
+
+    if (powerOn && getCity().getCityTime() % 8 == 0) {
+      adjustROG(2);
     }
   }
 
