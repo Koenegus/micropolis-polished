@@ -140,6 +140,7 @@ public class Micropolis {
   private int nuclearCount;
   private int seaportCount;
   private int airportCount;
+  private int universityCount;
   private int totalPop;
   private int needHospital; // -1 too many already, 0 just right, 1 not enough
   private int needChurch; // -1 too many already, 0 just right, 1 not enough
@@ -503,6 +504,7 @@ public class Micropolis {
     nuclearCount = 0;
     seaportCount = 0;
     airportCount = 0;
+    universityCount = 0;
     powerPlants.clear();
 
     for (int y = 0; y < fireStMap.length; y++) {
@@ -1133,6 +1135,7 @@ public class Micropolis {
     bb.put("STADIUM_FULL", new MapScanner(this, Behavior.STADIUM_FULL));
     bb.put("AIRPORT", new MapScanner(this, Behavior.AIRPORT));
     bb.put("SEAPORT", new MapScanner(this, Behavior.SEAPORT));
+    bb.put("UNIVERSITY", new MapScanner(this, Behavior.UNIVERSITY));
 
     tileBehaviors = bb;
   }
@@ -2106,6 +2109,14 @@ public class Micropolis {
 
   public void setAirportCount(int airportCount) {
     this.airportCount = airportCount;
+  }
+
+  public int getUniversityCount() {
+    return universityCount;
+  }
+
+  public void setUniversityCount(int universityCount) {
+    this.universityCount = universityCount;
   }
 
   public int getTotalPop() {
