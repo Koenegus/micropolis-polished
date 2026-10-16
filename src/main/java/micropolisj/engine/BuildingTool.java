@@ -15,6 +15,7 @@ import static micropolisj.engine.TileConstants.POLICESTATION;
 import static micropolisj.engine.TileConstants.PORT;
 import static micropolisj.engine.TileConstants.POWERPLANT;
 import static micropolisj.engine.TileConstants.STADIUM;
+import static micropolisj.engine.TileConstants.UNIVERSITY;
 
 public class BuildingTool extends ToolStroke {
   public BuildingTool(Micropolis engine, MicropolisTool tool, int xpos, int ypos) {
@@ -58,6 +59,10 @@ public class BuildingTool extends ToolStroke {
 
       case AIRPORT:
         applyZone(eff, AIRPORT);
+        return;
+
+      case UNIVERSITY:
+        applyZone(eff, UNIVERSITY);
         return;
 
       default:
