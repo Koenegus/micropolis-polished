@@ -1,4 +1,6 @@
 *.class
+.editorconfig
+.gitattributes
 target/
 .github/
 .idea/
