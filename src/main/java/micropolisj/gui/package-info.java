@@ -1,0 +1,7 @@
+/**
+ * Contains the front-end user interface that drives the game.
+ *
+ * <p>Most of the funtionality is tied in by the MainWindow class. The MicropolisDrawingArea class
+ * provides the city renderer. The OverlapMapView class provides the mini-map.
+ */
+package micropolisj.gui;
